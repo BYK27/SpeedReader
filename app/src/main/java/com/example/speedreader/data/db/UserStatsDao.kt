@@ -6,7 +6,7 @@ import com.example.speedreader.data.model.UserStats
 @Dao
 interface UserStatsDao
 {
-    @Query("SELECT * FROM user_stats WHERE id = 0")
+    @Query("SELECT * FROM user_stats")
     suspend fun getStats(): UserStats?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

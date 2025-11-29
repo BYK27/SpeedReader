@@ -1,5 +1,6 @@
 package com.example.speedreader.ui.reader
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.clickable
@@ -21,6 +22,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -31,7 +33,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.speedreader.data.db.PdfBookDao
+import com.example.speedreader.data.db.UserStatsDao
 import com.example.speedreader.data.model.PdfBook
+import com.example.speedreader.data.model.UserStats
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
@@ -39,21 +43,33 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.InputStream
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
+@SuppressLint("NewApi")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpeedReaderScreen(
     pdfUri: Uri,
     pdfName: String,
-    pdfBookDao: PdfBookDao
+    pdfBookDao: PdfBookDao,
+    userStatsDao: UserStatsDao
 ) {
     val context = LocalContext.current
     var words by remember { mutableStateOf(listOf<String>()) }
-    var currentWordIndex by remember { mutableStateOf(0) }
-    var wpm by remember { mutableStateOf(300) }
+    var currentWordIndex by remember { mutableIntStateOf(0) }
+    var wpm by remember { mutableIntStateOf(300) }
     var isPaused by remember { mutableStateOf(true) }
     var showFullText by remember { mutableStateOf(false) }
     var showPercentage by remember { mutableStateOf(false) }
+    val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    val today = LocalDate.now().format(dateFormatter)
+
+    var stats by remember { mutableStateOf<UserStats?>(null) }
+
+    LaunchedEffect(Unit) {
+        stats = withContext(Dispatchers.IO) { userStatsDao.getStats() }
+    }
 
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
@@ -82,6 +98,37 @@ fun SpeedReaderScreen(
                 pdfBookDao.insertOrUpdate(
                     PdfBook(uri = pdfUri.toString(), name = pdfName, lastWordIndex = currentWordIndex)
                 )
+
+                // --- STREAK + WORD COUNT TRACKING ---
+                withContext(Dispatchers.IO) {
+                    val today = java.time.LocalDate.now().toString()
+                    val s = stats ?: userStatsDao.getStats() ?: UserStats()
+
+                    // Increment todayWords and totalWordsRead
+                    val isNewDay = s.lastReadDate != today
+                    val newTodayCount = if (isNewDay) 1 else s.todayWords + 1
+                    val newTotal = s.totalWordsRead + 1
+
+                    // Only increment streak once per day when reaching 3000 words
+                    val reached3000Today = newTodayCount >= 3000 && s.streakUpdatedDate != today
+                    val updatedStreak = if (reached3000Today) s.streak + 1 else s.streak
+
+                    val updatedStats = s.copy(
+                        totalWordsRead = newTotal,
+                        todayWords = newTodayCount,
+                        lastReadDate = today,
+                        streak = updatedStreak,
+                        streakUpdatedDate = if (reached3000Today) today else s.streakUpdatedDate
+                    )
+
+                    // Insert or update in DB
+                    userStatsDao.insertOrUpdate(updatedStats)
+                    stats = updatedStats
+
+                    android.util.Log.d("SpeedReaderStats", "Updated stats: $updatedStats")
+                }
+
+
             }
             val delayMillis = (60000L / wpm)
             delay(delayMillis)
@@ -194,7 +241,7 @@ fun SpeedReaderScreen(
             }
 
             Text(
-                text = "$timeFormatted",
+                text = timeFormatted,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(12.dp),

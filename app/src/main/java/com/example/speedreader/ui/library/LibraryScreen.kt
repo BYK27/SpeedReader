@@ -1,5 +1,6 @@
 package com.example.speedreader.ui.library
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,14 +30,19 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.unit.sp
 import com.example.speedreader.data.db.PdfBookDao
+import com.example.speedreader.data.db.UserStatsDao
+import com.example.speedreader.data.model.UserStats
 import kotlinx.coroutines.launch
 
+@SuppressLint("NewApi")
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun LibraryScreen(
     pdfBookDao: PdfBookDao,
-    onPdfSelected: (Uri, String) -> Unit
+    onPdfSelected: (Uri, String) -> Unit,
+    userStatsDao: UserStatsDao
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -47,6 +53,38 @@ fun LibraryScreen(
     var newName by remember { mutableStateOf("") }
 
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    var stats by remember { mutableStateOf<UserStats?>(null) }
+
+    LaunchedEffect(userStatsDao) {
+        val today = java.time.LocalDate.now()
+        val s = userStatsDao.getStats() ?: UserStats()
+
+        val lastRead = if (s.lastReadDate.isNotBlank()) java.time.LocalDate.parse(s.lastReadDate) else null
+
+        val updatedStats = if (lastRead == null || lastRead.isBefore(today)) {
+            // Determine yesterday's words
+            val yesterdayWords = if (lastRead == today.minusDays(1)) s.todayWords else 0
+
+            // Reset streak if yesterday < 3000 or last reading >1 day ago
+            val newStreak = if (yesterdayWords >= 3000) s.streak else 0
+
+            s.copy(
+                streak = newStreak,
+                todayWords = 0,
+                yesterdayWords = yesterdayWords,
+                lastReadDate = today.toString(),
+                streakUpdatedDate = "" // allow streak increment today
+            )
+        } else {
+            s
+        }
+
+        userStatsDao.insertOrUpdate(updatedStats)
+        stats = updatedStats
+
+        android.util.Log.d("SpeedReaderStats", "LibraryScreen new day check: $updatedStats")
+    }
 
     // PDF picker
     val pdfPicker = rememberLauncherForActivityResult(
@@ -97,7 +135,7 @@ fun LibraryScreen(
             }
         }
     ) { paddingValues ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
@@ -172,6 +210,23 @@ fun LibraryScreen(
                         }
                     }
                 )
+            }
+
+            // Streaks section
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Total words read: ${stats?.totalWordsRead ?: 0}",
+                    fontSize = 20.sp
+                )
+                Text(
+                    text = "Today words read: ${stats?.todayWords ?: 0}",
+                    fontSize = 20.sp
+                )
+                Text(
+                    text = "Streak: ${stats?.streak ?: 0} days",
+                    fontSize = 20.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
             // --- PDF List ---

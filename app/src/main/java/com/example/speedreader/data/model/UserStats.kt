@@ -5,8 +5,11 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "user_stats")
 data class UserStats(
-    @PrimaryKey val id: Int = 0,
-    val totalWordsRead: Long = 0L,
-    val streakCount: Int = 0,
-    val lastStreakDate: String = "" // format: yyyy-MM-dd
+    @PrimaryKey val id: Int = 1,
+    val totalWordsRead: Int = 0,
+    val todayWords: Int = 0,
+    val lastReadDate: String = "",
+    val streak: Int = 0,
+    val streakUpdatedDate: String = "",
+    val yesterdayWords: Int = 0
 )

@@ -1,8 +1,10 @@
 package com.example.speedreader.ui.library
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -102,8 +104,10 @@ fun LibraryScreen(
                     e.printStackTrace()
                 }
 
+                val realFileName = getFileNameFromUri(context, uri)
+
                 scope.launch {
-                    val destFile = File(context.getExternalFilesDir(null), uri.lastPathSegment ?: "document.pdf")
+                    val destFile = File(context.getExternalFilesDir(null), realFileName)
 
                     contentResolver.openInputStream(uri)?.use { input ->
                         destFile.outputStream().use { output ->
@@ -113,7 +117,7 @@ fun LibraryScreen(
 
                     val savedBook = com.example.speedreader.data.model.PdfBook(
                         uri = destFile.toUri().toString(),
-                        name = uri.lastPathSegment ?: "Unknown.pdf"
+                        name = realFileName
                     )
                     pdfBookDao.insertOrUpdate(savedBook)
                     pdfList = pdfBookDao.getAll()
@@ -264,4 +268,29 @@ fun getDefaultPdfUri(context: android.content.Context): Uri {
         }
     }
     return file.toUri()
+}
+
+// --- Helper to get name from pdf ---
+@SuppressLint("Range")
+fun getFileNameFromUri(context: Context, uri: Uri): String {
+    var result: String? = null
+    if (uri.scheme == "content") {
+        val cursor = context.contentResolver.query(uri, null, null, null, null)
+        try {
+            if (cursor != null && cursor.moveToFirst()) {
+                result = cursor.getString(cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+            }
+        } finally {
+            cursor?.close()
+        }
+    }
+    // Fallback if it's a standard file URI
+    if (result == null) {
+        result = uri.path
+        val cut = result?.lastIndexOf('/') ?: -1
+        if (cut != -1) {
+            result = result?.substring(cut + 1)
+        }
+    }
+    return result ?: "Unknown.pdf"
 }

@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavHostController
 import com.example.speedreader.data.db.PdfBookDao
 import com.example.speedreader.data.db.UserStatsDao
 import com.example.speedreader.data.model.PdfBook
@@ -54,7 +55,8 @@ fun SpeedReaderScreen(
     pdfUri: Uri,
     pdfName: String,
     pdfBookDao: PdfBookDao,
-    userStatsDao: UserStatsDao
+    userStatsDao: UserStatsDao,
+    navController: NavHostController
 ) {
     val context = LocalContext.current
     var words by remember { mutableStateOf(listOf<String>()) }
@@ -182,6 +184,14 @@ fun SpeedReaderScreen(
                 ) {
                     Button(onClick = { showFullText = !showFullText }) {
                         Text(if (showFullText) "Hide Full Text" else "Show Full Text")
+                    }
+
+                    Button(onClick = {
+                        // Pause speed reader before leaving
+                        isPaused = true
+                        navController.navigate("full_reader/${Uri.encode(pdfUri.toString())}/$pdfName")
+                    }, enabled = false) {
+                        Text("Read as Book")
                     }
 
                     // <-- Word counter / percentage toggle

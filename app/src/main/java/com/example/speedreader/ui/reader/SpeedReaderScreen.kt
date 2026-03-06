@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,6 +61,7 @@ fun SpeedReaderScreen(
     var currentWordIndex by remember { mutableIntStateOf(0) }
     var wpm by remember { mutableIntStateOf(300) }
     var isPaused by remember { mutableStateOf(true) }
+    var adaptiveSpeedEnabled by remember { mutableStateOf(false) }
     var showFullText by remember { mutableStateOf(false) }
     var showPercentage by remember { mutableStateOf(false) }
     val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
@@ -91,7 +93,7 @@ fun SpeedReaderScreen(
     }
 
     // Flash words
-    LaunchedEffect(words, wpm, isPaused) {
+    LaunchedEffect(words, wpm, isPaused, adaptiveSpeedEnabled) {
         while (words.isNotEmpty()) {
             if (!isPaused) {
                 currentWordIndex = (currentWordIndex + 1).coerceAtMost(words.size - 1)
@@ -127,10 +129,33 @@ fun SpeedReaderScreen(
 
                     android.util.Log.d("SpeedReaderStats", "Updated stats: $updatedStats")
                 }
-
-
             }
-            val delayMillis = (60000L / wpm)
+            // --- ADAPTIVE DELAY & PUNCTUATION LOGIC ---
+            val baseDelayMillis = (60000L / wpm)
+
+            var delayMillis = if (adaptiveSpeedEnabled && !isPaused) {
+                val currentWord = words[currentWordIndex]
+                val lengthRatio = currentWord.length / 5.0 // 5 is approx average word length
+
+                // Blend 50% static delay and 50% length-based delay
+                (baseDelayMillis * 0.5 + baseDelayMillis * 0.5 * lengthRatio).toLong()
+            } else {
+                baseDelayMillis
+            }
+
+            // Apply punctuation micro-delays if adaptive speed is enabled
+            if (adaptiveSpeedEnabled && !isPaused) {
+                val currentWord = words[currentWordIndex]
+                if (currentWord.isNotEmpty()) {
+                    val lastChar = currentWord.last()
+                    delayMillis = when (lastChar) {
+                        '.', '!', '?' -> (delayMillis * 2.0).toLong() // 100% extra delay for sentence end
+                        ',', ';', ':' -> (delayMillis * 1.5).toLong() // 50% extra delay for clause pause
+                        else -> delayMillis
+                    }
+                }
+            }
+
             delay(delayMillis)
         }
     }
@@ -204,6 +229,22 @@ fun SpeedReaderScreen(
 
                         // Increase by 50
                         Button(onClick = { wpm += 50 }) { Text("++") }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Adaptive speed
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        androidx.compose.material3.Switch(
+                            checked = adaptiveSpeedEnabled,
+                            onCheckedChange = { adaptiveSpeedEnabled = it }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Adaptive Speed", fontSize = 16.sp)
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))

@@ -76,6 +76,12 @@ fun SpeedReaderScreen(
 
     val themeColor = stats?.themeColor?.let { Color(it.toLong() and 0xFFFFFFFFL) } ?: MaterialTheme.colorScheme.primary
     val buttonColors = ButtonDefaults.buttonColors(containerColor = themeColor)
+    val backgroundColor = if (stats?.isBackgroundEnabled == true) {
+        themeColor.copy(alpha = 0.15f) // 15% opacity tint
+    } else {
+        MaterialTheme.colorScheme.background // Default system background
+    }
+
 
     LaunchedEffect(Unit) {
         stats = withContext(Dispatchers.IO) { userStatsDao.getStats() }
@@ -176,7 +182,10 @@ fun SpeedReaderScreen(
     val timeFormatted = String.format("%dh %02dm", hours, minutes)
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Speed Reader") }) },
+        containerColor = backgroundColor,
+        topBar = { TopAppBar(title = { Text("Speed Reader") }, colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+            containerColor = backgroundColor
+        )) },
         bottomBar = {
             Box(
                 modifier = Modifier

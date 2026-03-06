@@ -36,6 +36,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import com.example.speedreader.data.db.PdfBookDao
@@ -251,9 +252,31 @@ fun LibraryScreen(
                                 stats = updated
                             }
                         })
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Enable Tinted Background")
+                Switch(
+                    checked = stats?.isBackgroundEnabled ?: false,
+                    onCheckedChange = { isEnabled ->
+                        scope.launch {
+                            val updated = (stats ?: UserStats()).copy(isBackgroundEnabled = isEnabled)
+                            userStatsDao.insertOrUpdate(updated)
+                            stats = updated
+                        }
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color(stats?.themeColor?.toLong() ?: 0xFF6650a4L)
+                    )
                 )
             }
-        }
 
             // Streaks section
             Column(modifier = Modifier.padding(16.dp)) {

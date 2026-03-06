@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 import com.example.speedreader.data.model.PdfBook
 import com.example.speedreader.data.model.UserStats
 
-@Database(entities = [PdfBook::class, UserStats::class], version = 4, exportSchema = false)
+@Database(entities = [PdfBook::class, UserStats::class], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun pdfBookDao(): PdfBookDao
     abstract fun userStatsDao(): UserStatsDao

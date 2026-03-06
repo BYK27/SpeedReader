@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -29,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -70,6 +73,9 @@ fun SpeedReaderScreen(
     val today = LocalDate.now().format(dateFormatter)
 
     var stats by remember { mutableStateOf<UserStats?>(null) }
+
+    val themeColor = stats?.themeColor?.let { Color(it.toLong() and 0xFFFFFFFFL) } ?: MaterialTheme.colorScheme.primary
+    val buttonColors = ButtonDefaults.buttonColors(containerColor = themeColor)
 
     LaunchedEffect(Unit) {
         stats = withContext(Dispatchers.IO) { userStatsDao.getStats() }
@@ -182,7 +188,7 @@ fun SpeedReaderScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Button(onClick = { showFullText = !showFullText }) {
+                    Button(onClick = { showFullText = !showFullText }, colors = buttonColors) {
                         Text(if (showFullText) "Hide Full Text" else "Show Full Text")
                     }
 
@@ -190,7 +196,7 @@ fun SpeedReaderScreen(
                         // Pause speed reader before leaving
                         isPaused = true
                         navController.navigate("full_reader/${Uri.encode(pdfUri.toString())}/$pdfName")
-                    }, enabled = false) {
+                    }, enabled = false, colors = buttonColors) {
                         Text("Read as Book")
                     }
 
@@ -227,18 +233,18 @@ fun SpeedReaderScreen(
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         // Decrease by 50
-                        Button(onClick = { if (wpm > 50) wpm -= 50 }) { Text("--") }
+                        Button(onClick = { if (wpm > 50) wpm -= 50 }, colors = buttonColors) { Text("--") }
 
                         // Decrease by 10
-                        Button(onClick = { if (wpm > 10) wpm -= 10 }) { Text("-") }
+                        Button(onClick = { if (wpm > 10) wpm -= 10 }, colors = buttonColors) { Text("-") }
 
                         Text("WPM: $wpm", fontSize = 18.sp, modifier = Modifier.align(Alignment.CenterVertically))
 
                         // Increase by 10
-                        Button(onClick = { wpm += 10 }) { Text("+") }
+                        Button(onClick = { wpm += 10 }, colors = buttonColors) { Text("+") }
 
                         // Increase by 50
-                        Button(onClick = { wpm += 50 }) { Text("++") }
+                        Button(onClick = { wpm += 50 }, colors = buttonColors) { Text("++") }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -259,7 +265,7 @@ fun SpeedReaderScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Button(onClick = { isPaused = !isPaused }) {
+                    Button(onClick = { isPaused = !isPaused }, colors = buttonColors) {
                         Text(if (isPaused) "Play" else "Pause")
                     }
 

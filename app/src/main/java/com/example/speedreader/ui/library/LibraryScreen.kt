@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,9 +30,13 @@ import androidx.core.net.toUri
 import java.io.File
 
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import com.example.speedreader.data.db.PdfBookDao
 import com.example.speedreader.data.db.UserStatsDao
@@ -215,6 +220,40 @@ fun LibraryScreen(
                     }
                 )
             }
+
+            val colorPurple = 0xFFad93f5;
+            val colorRed = 0xFFc45e5e;
+            val colorGreen = 0xFF8fd993;
+            val colorBlue = 0xFF70a6db;
+            val colorYellow = 0xFFffd261;
+            val colorOrange = 0xFFf79e3e;
+            val colorPink = 0xFFffc2f4;
+            val colorTurquoise = 0xFFbdfff3;
+            val colorLightGreen = 0xFFe3ffc7;
+            val selectableColors = listOf(colorYellow, colorOrange, colorRed, colorPink, colorPurple, colorBlue, colorTurquoise, colorGreen, colorLightGreen)
+
+            Text("Select Theme Color:", modifier = Modifier.padding(horizontal = 16.dp))
+            Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+            selectableColors.forEach { colorVal ->
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(Color(colorVal), CircleShape)
+                        .combinedClickable(onClick = {
+                            scope.launch {
+                                val updated = (stats ?: UserStats()).copy(themeColor = colorVal.toInt())
+                                userStatsDao.insertOrUpdate(updated)
+                                stats = updated
+                            }
+                        })
+                )
+            }
+        }
 
             // Streaks section
             Column(modifier = Modifier.padding(16.dp)) {

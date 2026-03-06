@@ -11,5 +11,6 @@ data class UserStats(
     val lastReadDate: String = "",
     val streak: Int = 0,
     val streakUpdatedDate: String = "",
-    val yesterdayWords: Int = 0
+    val yesterdayWords: Int = 0,
+    val themeColor: Int = 0xFF6650a4.toInt()
 )

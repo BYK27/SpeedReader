@@ -205,7 +205,7 @@ fun SpeedReaderScreen(
                         // Pause speed reader before leaving
                         isPaused = true
                         navController.navigate("full_reader/${Uri.encode(pdfUri.toString())}/$pdfName")
-                    }, enabled = false, colors = buttonColors) {
+                    }, enabled = true, colors = buttonColors) {
                         Text("Read as Book")
                     }
 

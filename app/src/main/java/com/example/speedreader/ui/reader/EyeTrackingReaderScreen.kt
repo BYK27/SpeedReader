@@ -18,27 +18,34 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
-import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
+import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import kotlinx.coroutines.delay
-import java.util.concurrent.Executors
-import androidx.core.graphics.createBitmap
 import java.io.FileInputStream
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
-import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
+import java.util.concurrent.Executors
 import kotlin.math.sqrt
+
+// A thread-safe bridge between Compose and MediaPipe
+class TrackerState {
+    @Volatile var tlIrisX = 0f
+    @Volatile var tlIrisY = 0f
+    @Volatile var brIrisX = 0f
+    @Volatile var brIrisY = 0f
+    @Volatile var isCalibrating = true
+    @Volatile var currentRawIrisX = 0f
+    @Volatile var currentRawIrisY = 0f
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,38 +57,46 @@ fun EyeTrackingReaderScreen(
     val context = LocalContext.current
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
 
+    // Initialize our shared state bridge
+    val trackerState = remember { TrackerState() }
+
     // State
     var words by remember { mutableStateOf(listOf<String>()) }
     var currentPage by remember { mutableIntStateOf(0) }
-    val wordsPerPage = 30 // Configurable sentence/word limit
+    val wordsPerPage = 30
 
     var hasCameraPermission by remember { mutableStateOf(false) }
     var isLookingAtScreen by remember { mutableStateOf(false) }
     var activeReadingTimeSeconds by remember { mutableFloatStateOf(0f) }
     var showStats by remember { mutableStateOf(false) }
 
-    // Permission Launcher
+    // Current dot position on screen (Normalized 0.0 to 1.0)
+    var dotXNorm by remember { mutableFloatStateOf(0.5f) }
+    var dotYNorm by remember { mutableFloatStateOf(0.5f) }
+
+    // UI States
+    var isCalibratingUI by remember { mutableStateOf(true) }
+    var calibrationStep by remember { mutableIntStateOf(0) } // 0 = Top-Left, 1 = Bottom-Right
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted -> hasCameraPermission = isGranted }
 
     LaunchedEffect(Unit) {
         permissionLauncher.launch(Manifest.permission.CAMERA)
-        // Load words here (reusing your extractTextFromPdfCached function)
+        // Ensure extractTextFromPdfCached exists!
         val extractedWords = extractTextFromPdfCached(context, pdfUri)
         words = extractedWords.split("\\s+".toRegex()).filter { it.isNotBlank() }
     }
 
-    // Timer logic: Only increment if the user is looking at the screen
     LaunchedEffect(isLookingAtScreen, showStats) {
         while (isLookingAtScreen && !showStats) {
-            delay(100) // update every 100ms
+            delay(100)
             activeReadingTimeSeconds += 0.1f
         }
     }
 
     if (showStats) {
-        // --- STATS SCREEN ---
         val wordsRead = (currentPage + 1) * wordsPerPage
         val wpm = if (activeReadingTimeSeconds > 0) {
             (wordsRead / (activeReadingTimeSeconds / 60)).toInt()
@@ -104,77 +119,116 @@ fun EyeTrackingReaderScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(title = { Text("Eye Tracker: $pdfName") })
-        }
+        topBar = { TopAppBar(title = { Text("Eye Tracker: $pdfName") }) }
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Status Indicator
-            Text(
-                text = if (isLookingAtScreen) "Tracking: Eyes Detected" else "Tracking Paused: Please look at the screen",
-                color = if (isLookingAtScreen) androidx.compose.ui.graphics.Color.Green else androidx.compose.ui.graphics.Color.Red,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            // Book Text
-            val pages = words.chunked(wordsPerPage)
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                if (pages.isNotEmpty() && currentPage < pages.size) {
+            if (isCalibratingUI) {
+                // --- CALIBRATION SCREEN ---
+                Box(modifier = Modifier.fillMaxSize()) {
                     Text(
-                        text = pages[currentPage].joinToString(" "),
-                        fontSize = 24.sp,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 32.sp
+                        "Keep your head perfectly still.\nLook at the button and tap it.",
+                        modifier = Modifier.align(Alignment.Center),
+                        textAlign = TextAlign.Center
                     )
-                } else {
-                    Text("Loading or end of book...")
+
+                    if (calibrationStep == 0) {
+                        Button(
+                            onClick = {
+                                // Save to the shared state!
+                                trackerState.tlIrisX = trackerState.currentRawIrisX
+                                trackerState.tlIrisY = trackerState.currentRawIrisY
+                                calibrationStep = 1
+                            },
+                            modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
+                        ) { Text("Look Here & Tap") }
+                    } else if (calibrationStep == 1) {
+                        Button(
+                            onClick = {
+                                // Save to the shared state!
+                                trackerState.brIrisX = trackerState.currentRawIrisX
+                                trackerState.brIrisY = trackerState.currentRawIrisY
+                                trackerState.isCalibrating = false // Tell background thread we're done
+                                isCalibratingUI = false            // Update Compose UI
+                            },
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+                        ) { Text("Look Here & Tap") }
+                    }
+                }
+            } else {
+                // --- SPEED READER UI ---
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = if (isLookingAtScreen) "Tracking: Eyes Detected" else "Tracking Paused: Please look at the screen",
+                            color = if (isLookingAtScreen) androidx.compose.ui.graphics.Color.Green else androidx.compose.ui.graphics.Color.Red,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+
+                        val pages = words.chunked(wordsPerPage)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (pages.isNotEmpty() && currentPage < pages.size) {
+                                Text(
+                                    text = pages[currentPage].joinToString(" "),
+                                    fontSize = 24.sp,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 32.sp
+                                )
+                            } else {
+                                Text("Loading or end of book...")
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(onClick = { if (currentPage > 0) currentPage-- }) { Text("<") }
+                            Button(
+                                onClick = { showStats = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color.Red)
+                            ) { Text("Stop & Show Stats") }
+                            Button(onClick = { if (currentPage < pages.size - 1) currentPage++ }) { Text(">") }
+                        }
+                    }
+
+                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                        drawCircle(
+                            color = androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.5f),
+                            radius = 20f,
+                            center = androidx.compose.ui.geometry.Offset(
+                                x = dotXNorm * size.width,
+                                y = dotYNorm * size.height
+                            )
+                        )
+                    }
                 }
             }
 
-            // Controls
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Button(onClick = { if (currentPage > 0) currentPage-- }) { Text("<") }
-
-                Button(
-                    onClick = { showStats = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color.Red)
-                ) {
-                    Text("Stop & Show Stats")
-                }
-
-                Button(onClick = { if (currentPage < pages.size - 1) currentPage++ }) { Text(">") }
-            }
-
-            // Hidden Camera Preview for MediaPipe Analyzer
             if (hasCameraPermission && !showStats) {
-                Box(modifier = Modifier.size(1.dp)) { // Keep it tiny/hidden
+                Box(modifier = Modifier.size(1.dp)) {
                     AndroidView(
                         factory = { ctx ->
                             val previewView = PreviewView(ctx)
                             val executor = ContextCompat.getMainExecutor(ctx)
                             val backgroundExecutor = Executors.newSingleThreadExecutor()
-
-                            // 1. Initialize our debounce timer tracker
                             var lastEyesOpenTime = SystemClock.elapsedRealtime()
 
-                            // 2. Initialize MediaPipe Face Landmarker
                             val modelBuffer = loadModelFile(context, "face_landmarker.task")
-
                             val baseOptions = BaseOptions.builder()
                                 .setModelAssetBuffer(modelBuffer)
                                 .build()
@@ -187,43 +241,56 @@ fun EyeTrackingReaderScreen(
                                     val currentTime = SystemClock.elapsedRealtime()
 
                                     if (faceLandmarks.isNotEmpty()) {
-                                        val landmarks = faceLandmarks[0] // Get the first detected face
+                                        val landmarks = faceLandmarks[0]
 
                                         val rightEyeIndices = intArrayOf(33, 160, 158, 133, 153, 144)
                                         val leftEyeIndices = intArrayOf(362, 385, 387, 263, 373, 380)
+                                        val avgEAR = (calculateEAR(landmarks, rightEyeIndices) + calculateEAR(landmarks, leftEyeIndices)) / 2.0f
 
-                                        val rightEAR = calculateEAR(landmarks, rightEyeIndices)
-                                        val leftEAR = calculateEAR(landmarks, leftEyeIndices)
-
-                                        val avgEAR = (rightEAR + leftEAR) / 2.0f
-                                        val earThreshold = 0.2f
-
-                                        if (avgEAR > earThreshold) {
-                                            // Eyes are open: update the tracker and set state to true
+                                        if (avgEAR > 0.2f) {
                                             lastEyesOpenTime = currentTime
                                             isLookingAtScreen = true
-                                        } else {
-                                            // Eyes are closed: only pause if it's been more than 500ms
-                                            if (currentTime - lastEyesOpenTime > 500L) {
-                                                isLookingAtScreen = false
+                                        } else if (currentTime - lastEyesOpenTime > 500L) {
+                                            isLookingAtScreen = false
+                                        }
+
+                                        val rawIrisX = landmarks[468].x()
+                                        val rawIrisY = landmarks[468].y()
+
+                                        // Always update the shared state
+                                        trackerState.currentRawIrisX = rawIrisX
+                                        trackerState.currentRawIrisY = rawIrisY
+
+                                        if (!trackerState.isCalibrating && isLookingAtScreen) {
+                                            // Read from the shared state to get the freshest calibration data
+                                            val rangeX = trackerState.brIrisX - trackerState.tlIrisX
+                                            val rangeY = trackerState.brIrisY - trackerState.tlIrisY
+
+                                            val safeRangeX = if (kotlin.math.abs(rangeX) < 0.0001f) 0.0001f else rangeX
+                                            val safeRangeY = if (kotlin.math.abs(rangeY) < 0.0001f) 0.0001f else rangeY
+
+                                            var targetX = (rawIrisX - trackerState.tlIrisX) / safeRangeX
+                                            var targetY = (rawIrisY - trackerState.tlIrisY) / safeRangeY
+
+                                            targetX = targetX.coerceIn(0f, 1f)
+                                            targetY = targetY.coerceIn(0f, 1f)
+
+                                            ContextCompat.getMainExecutor(ctx).execute {
+                                                val smoothingFactor = 0.15f
+                                                dotXNorm = (dotXNorm * (1f - smoothingFactor)) + (targetX * smoothingFactor)
+                                                dotYNorm = (dotYNorm * (1f - smoothingFactor)) + (targetY * smoothingFactor)
                                             }
                                         }
                                     } else {
-                                        // No face detected in frame: also apply the 500ms debounce
                                         if (currentTime - lastEyesOpenTime > 500L) {
                                             isLookingAtScreen = false
                                         }
                                     }
                                 }
-                                .setErrorListener { error ->
-                                    Log.e("EyeTracker", "MediaPipe Error: ${error.message}")
-                                }
+                                .setErrorListener { error -> Log.e("EyeTracker", "MediaPipe Error: ${error.message}") }
                                 .build()
 
-// IMPORTANT: Use the context provided by the factory
                             val faceLandmarker = FaceLandmarker.createFromOptions(ctx, options)
-
-                            // 3. Set up CameraX
                             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                             cameraProviderFuture.addListener({
@@ -234,41 +301,35 @@ fun EyeTrackingReaderScreen(
 
                                 val imageAnalyzer = ImageAnalysis.Builder()
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888) // Best for converting to Bitmap
                                     .build()
-                                    .also {
-                                        it.setAnalyzer(backgroundExecutor) { imageProxy ->
+                                    .also { analyzer ->
+                                        analyzer.setAnalyzer(backgroundExecutor) { imageProxy ->
                                             val frameTime = SystemClock.uptimeMillis()
-
-                                            // Convert CameraX ImageProxy to Android Bitmap
-                                            val bitmapBuffer = imageProxy.planes[0].buffer
-                                            val bitmap =
-                                                createBitmap(imageProxy.width, imageProxy.height)
-                                            bitmap.copyPixelsFromBuffer(bitmapBuffer)
-
-                                            // Rotate and flip the image for the front-facing camera
-                                            val matrix = Matrix().apply {
-                                                postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
-                                                postScale(-1f, 1f) // Mirror image
+                                            try {
+                                                val bitmap = imageProxy.toBitmap()
+                                                val matrix = Matrix().apply {
+                                                    // 1. Rotate the image to match the phone's physical orientation
+                                                    postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
+                                                    // 2. Mirror the image for the front-facing camera
+                                                    postScale(-1f, 1f)
+                                                }
+                                                val mirroredBitmap = Bitmap.createBitmap(
+                                                    bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                                                )
+                                                val mpImage = BitmapImageBuilder(mirroredBitmap).build()
+                                                faceLandmarker.detectAsync(mpImage, frameTime)
+                                            } catch (e: Exception) {
+                                                Log.e("EyeTracker", "Image processing failed", e)
+                                            } finally {
+                                                imageProxy.close()
                                             }
-                                            val rotatedBitmap = Bitmap.createBitmap(
-                                                bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
-                                            )
-
-                                            // Convert to MediaPipe Image and send to the analyzer
-                                            val mpImage = BitmapImageBuilder(rotatedBitmap).build()
-                                            faceLandmarker.detectAsync(mpImage, frameTime)
-
-                                            // IMPORTANT: Close the imageProxy to receive the next frame
-                                            imageProxy.close()
                                         }
                                     }
 
-                                val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
                                 try {
                                     cameraProvider.unbindAll()
                                     cameraProvider.bindToLifecycle(
-                                        lifecycleOwner, cameraSelector, preview, imageAnalyzer
+                                        lifecycleOwner, CameraSelector.DEFAULT_FRONT_CAMERA, preview, imageAnalyzer
                                     )
                                 } catch (exc: Exception) {
                                     Log.e("EyeTracker", "Use case binding failed", exc)
@@ -283,15 +344,12 @@ fun EyeTrackingReaderScreen(
     }
 }
 
+// Helper functions remain the same!
 fun loadModelFile(context: Context, modelName: String): MappedByteBuffer {
     val afd = context.assets.openFd(modelName)
     FileInputStream(afd.fileDescriptor).use { fis ->
         val channel = fis.channel
-        return channel.map(
-            FileChannel.MapMode.READ_ONLY,
-            afd.startOffset,
-            afd.declaredLength
-        )
+        return channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
     }
 }
 
@@ -302,17 +360,14 @@ fun euclideanDistance(p1: NormalizedLandmark, p2: NormalizedLandmark): Float {
 }
 
 fun calculateEAR(landmarks: List<NormalizedLandmark>, indices: IntArray): Float {
-    // MediaPipe points: [p1(outer), p2(top-outer), p3(top-inner), p4(inner), p5(bottom-inner), p6(bottom-outer)]
     val p1 = landmarks[indices[0]]
     val p2 = landmarks[indices[1]]
     val p3 = landmarks[indices[2]]
     val p4 = landmarks[indices[3]]
     val p5 = landmarks[indices[4]]
     val p6 = landmarks[indices[5]]
-
     val vertical1 = euclideanDistance(p2, p6)
     val vertical2 = euclideanDistance(p3, p5)
     val horizontal = euclideanDistance(p1, p4)
-
     return (vertical1 + vertical2) / (2.0f * horizontal)
 }

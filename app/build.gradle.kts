@@ -64,5 +64,14 @@ dependencies {
     implementation("androidx.room:room-ktx:2.8.2") // optional, Kotlin coroutines support
     // --- ---
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    // CameraX
+    val camerax_version = "1.3.1"
+    implementation("androidx.camera:camera-core:${camerax_version}")
+    implementation("androidx.camera:camera-camera2:${camerax_version}")
+    implementation("androidx.camera:camera-lifecycle:${camerax_version}")
+    implementation("androidx.camera:camera-view:${camerax_version}")
+
+// MediaPipe Tasks Vision
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
 
 }

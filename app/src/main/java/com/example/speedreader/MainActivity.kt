@@ -17,6 +17,7 @@ import com.example.speedreader.data.db.AppDatabase
 import com.example.speedreader.data.db.PdfBookDao
 import com.example.speedreader.data.db.UserStatsDao
 import com.example.speedreader.ui.library.LibraryScreen
+import com.example.speedreader.ui.reader.EyeTrackingReaderScreen
 import com.example.speedreader.ui.reader.FullPdfScreen
 import com.example.speedreader.ui.reader.SpeedReaderScreen
 import com.example.speedreader.ui.theme.SpeedReaderTheme
@@ -72,6 +73,13 @@ fun AppNavigation(
             val pdfName = backStackEntry.arguments?.getString("pdfName") ?: "Unknown.pdf"
 
             FullPdfScreen(pdfUri, pdfName, pdfBookDao, navController)
+        }
+
+        composable("eye_tracker/{pdfUri}/{pdfName}") { backStackEntry ->
+            val pdfUri = Uri.parse(backStackEntry.arguments?.getString("pdfUri"))
+            val pdfName = backStackEntry.arguments?.getString("pdfName") ?: "Unknown.pdf"
+
+            EyeTrackingReaderScreen(pdfUri, pdfName, navController)
         }
     }
 }

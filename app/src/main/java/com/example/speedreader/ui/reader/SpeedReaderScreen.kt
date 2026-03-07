@@ -198,7 +198,7 @@ fun SpeedReaderScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Button(onClick = { showFullText = !showFullText }, colors = buttonColors) {
-                        Text(if (showFullText) "Hide Full Text" else "Show Full Text")
+                        Text(if (showFullText) "Hide Text" else "Show Text")
                     }
 
                     Button(onClick = {
@@ -209,17 +209,13 @@ fun SpeedReaderScreen(
                         Text("Read as Book")
                     }
 
-                    // <-- Word counter / percentage toggle
-                    Text(
-                        text = if (showPercentage && words.isNotEmpty())
-                            "${(currentWordIndex * 100 / words.size)}%"
-                        else
-                            "${currentWordIndex + 1}/${words.size}",
-                        modifier = Modifier
-                            .clickable { showPercentage = !showPercentage }
-                            .padding(8.dp),
-                        fontSize = 16.sp
-                    )
+                    Button(onClick = {
+                        // Pause speed reader before leaving
+                        isPaused = true
+                        navController.navigate("eye_tracker/${Uri.encode(pdfUri.toString())}/$pdfName")
+                    }, enabled = true, colors = buttonColors) {
+                        Text("Eye Track")
+                    }
                 }
             }
         }
@@ -306,14 +302,32 @@ fun SpeedReaderScreen(
                 }
             }
 
-            Text(
-                text = timeFormatted,
+            // --- NEW ROW AT THE BOTTOM FOR COUNTER AND TIME ---
+            Row(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
                     .padding(12.dp),
-                fontSize = 14.sp,
-                textAlign = TextAlign.Right
-            )
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Left aligned: Word counter / percentage toggle
+                Text(
+                    text = if (showPercentage && words.isNotEmpty())
+                        "${(currentWordIndex * 100 / words.size)}%"
+                    else
+                        "${currentWordIndex + 1}/${words.size}",
+                    modifier = Modifier.clickable { showPercentage = !showPercentage },
+                    fontSize = 14.sp
+                )
+
+                // Right aligned: Time Left
+                Text(
+                    text = timeFormatted,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Right
+                )
+            }
         }
     }
 }

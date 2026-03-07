@@ -1,7 +1,11 @@
 package com.example.speedreader.ui.reader
 
 import android.Manifest
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,12 +26,17 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
+import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
+import androidx.core.graphics.createBitmap
+import java.io.FileInputStream
+import java.nio.MappedByteBuffer
+import java.nio.channels.FileChannel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,7 +96,7 @@ fun EyeTrackingReaderScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = { navController.popBackStack() }) { Text("Awesome") }
+                Button(onClick = { navController.popBackStack() }) { Text("Okay") }
             }
         )
     }
@@ -156,6 +165,33 @@ fun EyeTrackingReaderScreen(
                         factory = { ctx ->
                             val previewView = PreviewView(ctx)
                             val executor = ContextCompat.getMainExecutor(ctx)
+                            val backgroundExecutor = Executors.newSingleThreadExecutor()
+
+                            // 1. Initialize MediaPipe Face Landmarker
+                            val modelBuffer = loadModelFile(context, "face_landmarker.task")
+
+                            val baseOptions = BaseOptions.builder()
+                                // Use the buffer instead of the path!
+                                .setModelAssetBuffer(modelBuffer)
+                                .build()
+
+                            val options = FaceLandmarker.FaceLandmarkerOptions.builder()
+                                .setBaseOptions(baseOptions)
+                                .setRunningMode(RunningMode.LIVE_STREAM)
+                                .setResultListener { result, _ ->
+                                    // Use a threshold: only "looking" if we have exactly 1 face (or more)
+                                    val isFacePresent = result.faceLandmarks().isNotEmpty()
+                                    isLookingAtScreen = isFacePresent
+                                }
+                                .setErrorListener { error ->
+                                    Log.e("EyeTracker", "MediaPipe Error: ${error.message}")
+                                }
+                                .build()
+
+// IMPORTANT: Use the context provided by the factory
+                            val faceLandmarker = FaceLandmarker.createFromOptions(ctx, options)
+
+                            // 3. Set up CameraX
                             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                             cameraProviderFuture.addListener({
@@ -166,13 +202,32 @@ fun EyeTrackingReaderScreen(
 
                                 val imageAnalyzer = ImageAnalysis.Builder()
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888) // Best for converting to Bitmap
                                     .build()
                                     .also {
-                                        it.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
-                                            // TODO: Pass frame to MediaPipe
-                                            // Mock logic: Assuming face is detected if camera is running
-                                            // Real implementation requires FaceLandmarker
-                                            isLookingAtScreen = true
+                                        it.setAnalyzer(backgroundExecutor) { imageProxy ->
+                                            val frameTime = SystemClock.uptimeMillis()
+
+                                            // Convert CameraX ImageProxy to Android Bitmap
+                                            val bitmapBuffer = imageProxy.planes[0].buffer
+                                            val bitmap =
+                                                createBitmap(imageProxy.width, imageProxy.height)
+                                            bitmap.copyPixelsFromBuffer(bitmapBuffer)
+
+                                            // Rotate and flip the image for the front-facing camera
+                                            val matrix = Matrix().apply {
+                                                postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
+                                                postScale(-1f, 1f) // Mirror image
+                                            }
+                                            val rotatedBitmap = Bitmap.createBitmap(
+                                                bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                                            )
+
+                                            // Convert to MediaPipe Image and send to the analyzer
+                                            val mpImage = BitmapImageBuilder(rotatedBitmap).build()
+                                            faceLandmarker.detectAsync(mpImage, frameTime)
+
+                                            // IMPORTANT: Close the imageProxy to receive the next frame
                                             imageProxy.close()
                                         }
                                     }
@@ -193,5 +248,17 @@ fun EyeTrackingReaderScreen(
                 }
             }
         }
+    }
+}
+
+fun loadModelFile(context: Context, modelName: String): MappedByteBuffer {
+    val afd = context.assets.openFd(modelName)
+    FileInputStream(afd.fileDescriptor).use { fis ->
+        val channel = fis.channel
+        return channel.map(
+            FileChannel.MapMode.READ_ONLY,
+            afd.startOffset,
+            afd.declaredLength
+        )
     }
 }

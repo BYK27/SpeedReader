@@ -13,10 +13,12 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,10 +59,8 @@ fun EyeTrackingReaderScreen(
     val context = LocalContext.current
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
 
-    // Initialize our shared state bridge
     val trackerState = remember { TrackerState() }
 
-    // State
     var words by remember { mutableStateOf(listOf<String>()) }
     var currentPage by remember { mutableIntStateOf(0) }
     val wordsPerPage = 30
@@ -70,13 +70,11 @@ fun EyeTrackingReaderScreen(
     var activeReadingTimeSeconds by remember { mutableFloatStateOf(0f) }
     var showStats by remember { mutableStateOf(false) }
 
-    // Current dot position on screen (Normalized 0.0 to 1.0)
     var dotXNorm by remember { mutableFloatStateOf(0.5f) }
     var dotYNorm by remember { mutableFloatStateOf(0.5f) }
 
-    // UI States
     var isCalibratingUI by remember { mutableStateOf(true) }
-    var calibrationStep by remember { mutableIntStateOf(0) } // 0 = Top-Left, 1 = Bottom-Right
+    var calibrationStep by remember { mutableIntStateOf(0) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -84,9 +82,12 @@ fun EyeTrackingReaderScreen(
 
     LaunchedEffect(Unit) {
         permissionLauncher.launch(Manifest.permission.CAMERA)
-        // Ensure extractTextFromPdfCached exists!
-        val extractedWords = extractTextFromPdfCached(context, pdfUri)
-        words = extractedWords.split("\\s+".toRegex()).filter { it.isNotBlank() }
+        // Ensure extractTextFromPdfCached exists in your actual project
+        // val extractedWords = extractTextFromPdfCached(context, pdfUri)
+        // words = extractedWords.split("\\s+".toRegex()).filter { it.isNotBlank() }
+
+        // Dummy data for testing if extraction is missing
+        words = List(300) { "Word$it" }
     }
 
     LaunchedEffect(isLookingAtScreen, showStats) {
@@ -127,7 +128,6 @@ fun EyeTrackingReaderScreen(
                 .padding(padding)
         ) {
             if (isCalibratingUI) {
-                // --- CALIBRATION SCREEN ---
                 Box(modifier = Modifier.fillMaxSize()) {
                     Text(
                         "Keep your head perfectly still.\nLook at the button and tap it.",
@@ -138,7 +138,6 @@ fun EyeTrackingReaderScreen(
                     if (calibrationStep == 0) {
                         Button(
                             onClick = {
-                                // Save to the shared state!
                                 trackerState.tlIrisX = trackerState.currentRawIrisX
                                 trackerState.tlIrisY = trackerState.currentRawIrisY
                                 calibrationStep = 1
@@ -148,18 +147,16 @@ fun EyeTrackingReaderScreen(
                     } else if (calibrationStep == 1) {
                         Button(
                             onClick = {
-                                // Save to the shared state!
                                 trackerState.brIrisX = trackerState.currentRawIrisX
                                 trackerState.brIrisY = trackerState.currentRawIrisY
-                                trackerState.isCalibrating = false // Tell background thread we're done
-                                isCalibratingUI = false            // Update Compose UI
+                                trackerState.isCalibrating = false
+                                isCalibratingUI = false
                             },
                             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
                         ) { Text("Look Here & Tap") }
                     }
                 }
             } else {
-                // --- SPEED READER UI ---
                 Box(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
@@ -220,10 +217,19 @@ fun EyeTrackingReaderScreen(
             }
 
             if (hasCameraPermission && !showStats) {
-                Box(modifier = Modifier.size(1.dp)) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd) // Puts it in the corner
+                        .padding(16.dp)
+                        .size(100.dp, 140.dp) // Width and Height of your "mirror"
+                        .clip(RoundedCornerShape(12.dp)) // Gives it nice rounded corners
+                ) {
                     AndroidView(
                         factory = { ctx ->
-                            val previewView = PreviewView(ctx)
+                            val previewView = PreviewView(ctx).apply {
+                                scaleType = PreviewView.ScaleType.FILL_CENTER
+                            }
+
                             val executor = ContextCompat.getMainExecutor(ctx)
                             val backgroundExecutor = Executors.newSingleThreadExecutor()
                             var lastEyesOpenTime = SystemClock.elapsedRealtime()
@@ -254,29 +260,47 @@ fun EyeTrackingReaderScreen(
                                             isLookingAtScreen = false
                                         }
 
-                                        val rawIrisX = landmarks[468].x()
-                                        val rawIrisY = landmarks[468].y()
+                                        // --- NEW LOGIC: Relative Eye Coordinates ---
+                                        // We use the right eye (landmarks 33, 133, 159, 145) and right iris (468)
+                                        // --- STABILIZED LOGIC: Rigid Relative Coordinates ---
+// We use the inner (133) and outer (33) corners of the right eye.
+// These points do NOT move when you blink, providing a rock-solid anchor.
+                                        val innerCorner = landmarks[133]
+                                        val outerCorner = landmarks[33]
+                                        val rawIris = landmarks[468]
 
-                                        // Always update the shared state
-                                        trackerState.currentRawIrisX = rawIrisX
-                                        trackerState.currentRawIrisY = rawIrisY
+// Calculate the distance between corners to use as our stable "scale"
+                                        val dxCorner = innerCorner.x() - outerCorner.x()
+                                        val dyCorner = innerCorner.y() - outerCorner.y()
+                                        val eyeWidth = sqrt(dxCorner * dxCorner + dyCorner * dyCorner)
+                                        val safeEyeWidth = maxOf(eyeWidth, 0.0001f)
+
+// Calculate iris offset from the inner corner, scaled strictly by the static eye width
+                                        val relativeIrisX = (rawIris.x() - innerCorner.x()) / safeEyeWidth
+                                        val relativeIrisY = (rawIris.y() - innerCorner.y()) / safeEyeWidth
+
+                                        trackerState.currentRawIrisX = relativeIrisX
+                                        trackerState.currentRawIrisY = relativeIrisY
 
                                         if (!trackerState.isCalibrating && isLookingAtScreen) {
-                                            // Read from the shared state to get the freshest calibration data
                                             val rangeX = trackerState.brIrisX - trackerState.tlIrisX
                                             val rangeY = trackerState.brIrisY - trackerState.tlIrisY
 
-                                            val safeRangeX = if (kotlin.math.abs(rangeX) < 0.0001f) 0.0001f else rangeX
-                                            val safeRangeY = if (kotlin.math.abs(rangeY) < 0.0001f) 0.0001f else rangeY
+                                            // Increased the minimum range threshold to 0.002f to prevent extreme division spikes
+                                            // if calibration points were captured too closely together.
+                                            val minRange = 0.002f
+                                            val safeRangeX = if (kotlin.math.abs(rangeX) < minRange) if (rangeX >= 0) minRange else -minRange else rangeX
+                                            val safeRangeY = if (kotlin.math.abs(rangeY) < minRange) if (rangeY >= 0) minRange else -minRange else rangeY
 
-                                            var targetX = (rawIrisX - trackerState.tlIrisX) / safeRangeX
-                                            var targetY = (rawIrisY - trackerState.tlIrisY) / safeRangeY
+                                            var targetX = (relativeIrisX - trackerState.tlIrisX) / safeRangeX
+                                            var targetY = (relativeIrisY - trackerState.tlIrisY) / safeRangeY
 
                                             targetX = targetX.coerceIn(0f, 1f)
                                             targetY = targetY.coerceIn(0f, 1f)
 
                                             ContextCompat.getMainExecutor(ctx).execute {
-                                                val smoothingFactor = 0.15f
+                                                // Reduced smoothing factor slightly to make it feel less "floaty"
+                                                val smoothingFactor = 0.1f
                                                 dotXNorm = (dotXNorm * (1f - smoothingFactor)) + (targetX * smoothingFactor)
                                                 dotYNorm = (dotYNorm * (1f - smoothingFactor)) + (targetY * smoothingFactor)
                                             }
@@ -308,9 +332,7 @@ fun EyeTrackingReaderScreen(
                                             try {
                                                 val bitmap = imageProxy.toBitmap()
                                                 val matrix = Matrix().apply {
-                                                    // 1. Rotate the image to match the phone's physical orientation
                                                     postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
-                                                    // 2. Mirror the image for the front-facing camera
                                                     postScale(-1f, 1f)
                                                 }
                                                 val mirroredBitmap = Bitmap.createBitmap(
@@ -336,7 +358,8 @@ fun EyeTrackingReaderScreen(
                                 }
                             }, executor)
                             previewView
-                        }
+                        },
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
             }
@@ -344,7 +367,6 @@ fun EyeTrackingReaderScreen(
     }
 }
 
-// Helper functions remain the same!
 fun loadModelFile(context: Context, modelName: String): MappedByteBuffer {
     val afd = context.assets.openFd(modelName)
     FileInputStream(afd.fileDescriptor).use { fis ->

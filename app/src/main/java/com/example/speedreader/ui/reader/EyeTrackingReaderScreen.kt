@@ -37,6 +37,8 @@ import androidx.core.graphics.createBitmap
 import java.io.FileInputStream
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
+import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
+import kotlin.math.sqrt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -179,9 +181,28 @@ fun EyeTrackingReaderScreen(
                                 .setBaseOptions(baseOptions)
                                 .setRunningMode(RunningMode.LIVE_STREAM)
                                 .setResultListener { result, _ ->
-                                    // Use a threshold: only "looking" if we have exactly 1 face (or more)
-                                    val isFacePresent = result.faceLandmarks().isNotEmpty()
-                                    isLookingAtScreen = isFacePresent
+                                    val faceLandmarks = result.faceLandmarks()
+
+                                    if (faceLandmarks.isNotEmpty()) {
+                                        val landmarks = faceLandmarks[0] // Get the first detected face
+
+                                        // Standard MediaPipe Face Mesh indices for the 6 points around each eye
+                                        val rightEyeIndices = intArrayOf(33, 160, 158, 133, 153, 144)
+                                        val leftEyeIndices = intArrayOf(362, 385, 387, 263, 373, 380)
+
+                                        val rightEAR = calculateEAR(landmarks, rightEyeIndices)
+                                        val leftEAR = calculateEAR(landmarks, leftEyeIndices)
+
+                                        // Average the two eyes
+                                        val avgEAR = (rightEAR + leftEAR) / 2.0f
+
+                                        // Threshold: usually between 0.20 and 0.25
+                                        val earThreshold = 0.2f
+
+                                        isLookingAtScreen = avgEAR > earThreshold
+                                    } else {
+                                        isLookingAtScreen = false
+                                    }
                                 }
                                 .setErrorListener { error ->
                                     Log.e("EyeTracker", "MediaPipe Error: ${error.message}")
@@ -261,4 +282,26 @@ fun loadModelFile(context: Context, modelName: String): MappedByteBuffer {
             afd.declaredLength
         )
     }
+}
+
+fun euclideanDistance(p1: NormalizedLandmark, p2: NormalizedLandmark): Float {
+    val dx = p1.x() - p2.x()
+    val dy = p1.y() - p2.y()
+    return sqrt(dx * dx + dy * dy)
+}
+
+fun calculateEAR(landmarks: List<NormalizedLandmark>, indices: IntArray): Float {
+    // MediaPipe points: [p1(outer), p2(top-outer), p3(top-inner), p4(inner), p5(bottom-inner), p6(bottom-outer)]
+    val p1 = landmarks[indices[0]]
+    val p2 = landmarks[indices[1]]
+    val p3 = landmarks[indices[2]]
+    val p4 = landmarks[indices[3]]
+    val p5 = landmarks[indices[4]]
+    val p6 = landmarks[indices[5]]
+
+    val vertical1 = euclideanDistance(p2, p6)
+    val vertical2 = euclideanDistance(p3, p5)
+    val horizontal = euclideanDistance(p1, p4)
+
+    return (vertical1 + vertical2) / (2.0f * horizontal)
 }

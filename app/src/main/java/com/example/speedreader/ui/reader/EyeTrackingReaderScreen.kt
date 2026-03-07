@@ -169,11 +169,13 @@ fun EyeTrackingReaderScreen(
                             val executor = ContextCompat.getMainExecutor(ctx)
                             val backgroundExecutor = Executors.newSingleThreadExecutor()
 
-                            // 1. Initialize MediaPipe Face Landmarker
+                            // 1. Initialize our debounce timer tracker
+                            var lastEyesOpenTime = SystemClock.elapsedRealtime()
+
+                            // 2. Initialize MediaPipe Face Landmarker
                             val modelBuffer = loadModelFile(context, "face_landmarker.task")
 
                             val baseOptions = BaseOptions.builder()
-                                // Use the buffer instead of the path!
                                 .setModelAssetBuffer(modelBuffer)
                                 .build()
 
@@ -182,26 +184,35 @@ fun EyeTrackingReaderScreen(
                                 .setRunningMode(RunningMode.LIVE_STREAM)
                                 .setResultListener { result, _ ->
                                     val faceLandmarks = result.faceLandmarks()
+                                    val currentTime = SystemClock.elapsedRealtime()
 
                                     if (faceLandmarks.isNotEmpty()) {
                                         val landmarks = faceLandmarks[0] // Get the first detected face
 
-                                        // Standard MediaPipe Face Mesh indices for the 6 points around each eye
                                         val rightEyeIndices = intArrayOf(33, 160, 158, 133, 153, 144)
                                         val leftEyeIndices = intArrayOf(362, 385, 387, 263, 373, 380)
 
                                         val rightEAR = calculateEAR(landmarks, rightEyeIndices)
                                         val leftEAR = calculateEAR(landmarks, leftEyeIndices)
 
-                                        // Average the two eyes
                                         val avgEAR = (rightEAR + leftEAR) / 2.0f
-
-                                        // Threshold: usually between 0.20 and 0.25
                                         val earThreshold = 0.2f
 
-                                        isLookingAtScreen = avgEAR > earThreshold
+                                        if (avgEAR > earThreshold) {
+                                            // Eyes are open: update the tracker and set state to true
+                                            lastEyesOpenTime = currentTime
+                                            isLookingAtScreen = true
+                                        } else {
+                                            // Eyes are closed: only pause if it's been more than 500ms
+                                            if (currentTime - lastEyesOpenTime > 500L) {
+                                                isLookingAtScreen = false
+                                            }
+                                        }
                                     } else {
-                                        isLookingAtScreen = false
+                                        // No face detected in frame: also apply the 500ms debounce
+                                        if (currentTime - lastEyesOpenTime > 500L) {
+                                            isLookingAtScreen = false
+                                        }
                                     }
                                 }
                                 .setErrorListener { error ->

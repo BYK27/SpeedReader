@@ -149,7 +149,7 @@ fun LibraryScreen(
                     onClick = { showUrlDialog = true },
                     modifier = Modifier.align(Alignment.BottomStart)
                 ) {
-                    Text("Add URL")
+                    Text("URL")
                 }
                 FloatingActionButton(
                     onClick = { pdfPicker.launch(arrayOf("application/pdf")) },

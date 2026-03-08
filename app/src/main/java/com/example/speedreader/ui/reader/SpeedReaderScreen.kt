@@ -215,7 +215,7 @@ fun SpeedReaderScreen(
                         // Pause speed reader before leaving
                         isPaused = true
                         navController.navigate("full_reader/$type/${Uri.encode(pdfUri.toString())}/$pdfName")
-                    }, enabled = true, colors = buttonColors) {
+                    }, enabled = type == "web", colors = buttonColors) {
                         Text("Read as Book")
                     }
 
@@ -223,7 +223,7 @@ fun SpeedReaderScreen(
                         // Pause speed reader before leaving
                         isPaused = true
                         navController.navigate("eye_tracker/$type/${Uri.encode(pdfUri.toString())}/$pdfName")
-                    }, enabled = true, colors = buttonColors) {
+                    }, enabled = type == "web", colors = buttonColors) {
                         Text("Eye Track")
                     }
                 }
@@ -391,8 +391,29 @@ suspend fun extractTextFromPdfCached(context: Context, pdfUri: Uri): String = wi
 
 suspend fun extractTextFromWeb(url: String): String = withContext(Dispatchers.IO) {
     try {
+        // Connect and fetch the HTML document
         val doc = Jsoup.connect(url).get()
-        return@withContext doc.body().text()
+
+        // 1. Clean the document: Remove common "fluff" elements
+        doc.select("nav, footer, header, aside, script, style, noscript, .sidebar, .menu, #comments").remove()
+
+        // 2. Locate the main content area
+        val mainContainer = doc.selectFirst("article")
+            ?: doc.selectFirst("main")
+            ?: doc.selectFirst("[role=main]")
+            ?: doc.body() // Fallback to the cleaned body if no semantic tags exist
+
+        // 3. Extract readable text block by block (Headers and Paragraphs)
+        val readableElements = mainContainer.select("h1, h2, h3, h4, h5, h6, p")
+
+        // 4. Return the compiled text
+        if (readableElements.isNotEmpty()) {
+            return@withContext readableElements.joinToString(" ") { it.text() }
+        } else {
+            // Absolute fallback in case the page doesn't use standard <p> tags
+            return@withContext mainContainer.text()
+        }
+
     } catch (e: Exception) {
         e.printStackTrace()
         return@withContext "Error: Could not load text from this URL."

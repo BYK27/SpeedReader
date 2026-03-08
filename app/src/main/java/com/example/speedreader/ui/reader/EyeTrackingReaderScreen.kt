@@ -54,6 +54,7 @@ class TrackerState {
 fun EyeTrackingReaderScreen(
     pdfUri: Uri,
     pdfName: String,
+    type: String,
     navController: NavHostController
 ) {
     val context = LocalContext.current
@@ -82,12 +83,14 @@ fun EyeTrackingReaderScreen(
 
     LaunchedEffect(Unit) {
         permissionLauncher.launch(Manifest.permission.CAMERA)
-        // Ensure extractTextFromPdfCached exists in your actual project
-        // val extractedWords = extractTextFromPdfCached(context, pdfUri)
-        // words = extractedWords.split("\\s+".toRegex()).filter { it.isNotBlank() }
-
-        // Dummy data for testing if extraction is missing
-        words = List(300) { "Word$it" }
+        // Fetch text dynamically based on type
+        val extractedText = if (type == "web") {
+            extractTextFromWeb(pdfUri.toString())
+        } else {
+            extractTextFromPdfCached(context, pdfUri)
+        }
+        words = extractedText.split("\\s+".toRegex()).filter { it.isNotBlank() }
+        //words = List(300) { "Word$it" }
     }
 
     LaunchedEffect(isLookingAtScreen, showStats) {

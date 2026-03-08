@@ -27,6 +27,7 @@ import kotlinx.coroutines.withContext
 fun FullPdfScreen(
     pdfUri: Uri,
     pdfName: String,
+    type: String,
     pdfBookDao: PdfBookDao,
     navController: NavHostController
 ) {
@@ -41,17 +42,21 @@ fun FullPdfScreen(
 
     // Load PDF text and progress
     LaunchedEffect(pdfUri) {
-        val extractedWords = extractTextFromPdfCached(context, pdfUri)
-        words = extractedWords.split("\\s+".toRegex()).filter { it.isNotBlank() }
-
-        val savedBook = withContext(Dispatchers.IO) {
-            pdfBookDao.getAll().find { it.uri == pdfUri.toString() }
+        if (type == "web") {
+            val extractedWords = extractTextFromWeb(pdfUri.toString())
+            words = extractedWords.split("\\s+".toRegex()).filter { it.isNotBlank() }
+            initialPage = 0
+            isLoaded = true
+        } else {
+            val extractedWords = extractTextFromPdfCached(context, pdfUri)
+            words = extractedWords.split("\\s+".toRegex()).filter { it.isNotBlank() }
+            val savedBook = withContext(Dispatchers.IO) {
+                pdfBookDao.getAll().find { it.uri == pdfUri.toString() }
+            }
+            val lastWordIndex = savedBook?.lastWordIndex ?: 0
+            initialPage = if (words.isNotEmpty()) lastWordIndex / wordsPerPage else 0
+            isLoaded = true
         }
-        val lastWordIndex = savedBook?.lastWordIndex ?: 0
-
-        // Calculate the page based on the saved word index
-        initialPage = if (words.isNotEmpty()) lastWordIndex / wordsPerPage else 0
-        isLoaded = true
     }
 
     Scaffold(
@@ -90,11 +95,13 @@ fun FullPdfScreen(
 
             // Save progress to database whenever the user flips a page
             LaunchedEffect(pagerState.currentPage) {
-                val newIndex = pagerState.currentPage * wordsPerPage
-                withContext(Dispatchers.IO) {
-                    pdfBookDao.insertOrUpdate(
-                        PdfBook(uri = pdfUri.toString(), name = pdfName, lastWordIndex = newIndex)
-                    )
+                if (type == "pdf") {
+                    val newIndex = pagerState.currentPage * wordsPerPage
+                    withContext(Dispatchers.IO) {
+                        pdfBookDao.insertOrUpdate(
+                            PdfBook(uri = pdfUri.toString(), name = pdfName, lastWordIndex = newIndex)
+                        )
+                    }
                 }
             }
 

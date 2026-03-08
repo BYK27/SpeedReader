@@ -49,37 +49,42 @@ fun AppNavigation(
     navController: NavHostController,
     pdfBookDao: PdfBookDao,
     userStatsDao: UserStatsDao
-)
-{
-    NavHost(navController = navController, startDestination = "library")
-    {
-        composable("library")
-        {
-            LibraryScreen(pdfBookDao = pdfBookDao, userStatsDao = userStatsDao, onPdfSelected = {uri, name ->
-                navController.navigate("reader/${Uri.encode(uri.toString())}/$name")
+) {
+    NavHost(navController = navController, startDestination = "library") {
+        composable("library") {
+            // MODIFIED: Added onUrlSelected callback here
+            LibraryScreen(pdfBookDao = pdfBookDao, userStatsDao = userStatsDao, onPdfSelected = { uri, name ->
+                navController.navigate("reader/pdf/${Uri.encode(uri.toString())}/$name")
+            }, onUrlSelected = { url ->
+                navController.navigate("reader/web/${Uri.encode(url)}/Web Article")
             })
         }
 
-        composable("reader/{pdfUri}/{pdfName}") { backStackEntry ->
-            val pdfUri = Uri.parse(backStackEntry.arguments?.getString("pdfUri"))
-            val pdfName = backStackEntry.arguments?.getString("pdfName") ?: "Unknown.pdf"
+        // MODIFIED: Added {type} to the route and parameters [cite: 4]
+        composable("reader/{type}/{uri}/{name}") { backStackEntry ->
+            val type = backStackEntry.arguments?.getString("type") ?: "pdf"
+            val uri = Uri.parse(backStackEntry.arguments?.getString("uri"))
+            val name = backStackEntry.arguments?.getString("name") ?: "Unknown"
 
-            SpeedReaderScreen(pdfUri, pdfName, pdfBookDao, userStatsDao, navController)
+            SpeedReaderScreen(uri, name, type, pdfBookDao, userStatsDao, navController)
         }
 
-        // NEW ROUTE: Full PDF Screen
-        composable("full_reader/{pdfUri}/{pdfName}") { backStackEntry ->
-            val pdfUri = Uri.parse(backStackEntry.arguments?.getString("pdfUri"))
-            val pdfName = backStackEntry.arguments?.getString("pdfName") ?: "Unknown.pdf"
+        // MODIFIED: Added {type} to the route and parameters [cite: 5]
+        composable("full_reader/{type}/{uri}/{name}") { backStackEntry ->
+            val type = backStackEntry.arguments?.getString("type") ?: "pdf"
+            val uri = Uri.parse(backStackEntry.arguments?.getString("uri"))
+            val name = backStackEntry.arguments?.getString("name") ?: "Unknown"
 
-            FullPdfScreen(pdfUri, pdfName, pdfBookDao, navController)
+            FullPdfScreen(uri, name, type, pdfBookDao, navController)
         }
 
-        composable("eye_tracker/{pdfUri}/{pdfName}") { backStackEntry ->
-            val pdfUri = Uri.parse(backStackEntry.arguments?.getString("pdfUri"))
-            val pdfName = backStackEntry.arguments?.getString("pdfName") ?: "Unknown.pdf"
+        // MODIFIED: Added {type} to the route and parameters [cite: 5, 6]
+        composable("eye_tracker/{type}/{uri}/{name}") { backStackEntry ->
+            val type = backStackEntry.arguments?.getString("type") ?: "pdf"
+            val uri = Uri.parse(backStackEntry.arguments?.getString("uri"))
+            val name = backStackEntry.arguments?.getString("name") ?: "Unknown"
 
-            EyeTrackingReaderScreen(pdfUri, pdfName, navController)
+            EyeTrackingReaderScreen(uri, name, type, navController)
         }
     }
 }

@@ -74,7 +74,10 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:${camerax_version}")
     implementation("androidx.camera:camera-view:${camerax_version}")
 
-// MediaPipe Tasks Vision
+    // MediaPipe Tasks Vision
     implementation("com.google.mediapipe:tasks-vision:0.10.14")
+
+    // URL reading
+    implementation("org.jsoup:jsoup:1.17.2")
 
 }

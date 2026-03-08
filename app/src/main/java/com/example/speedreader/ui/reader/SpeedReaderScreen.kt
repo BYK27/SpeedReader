@@ -46,6 +46,7 @@ import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import org.jsoup.Jsoup
 import java.io.File
 import java.io.InputStream
 import java.time.LocalDate
@@ -57,6 +58,7 @@ import java.time.format.DateTimeFormatter
 fun SpeedReaderScreen(
     pdfUri: Uri,
     pdfName: String,
+    type: String,
     pdfBookDao: PdfBookDao,
     userStatsDao: UserStatsDao,
     navController: NavHostController
@@ -97,13 +99,18 @@ fun SpeedReaderScreen(
 
     // Load PDF text
     LaunchedEffect(pdfUri) {
-        val extractedWords = extractTextFromPdfCached(context, pdfUri)
-        words = extractedWords.split("\\s+".toRegex()).filter { it.isNotBlank() }
-
-        val savedBook = withContext(Dispatchers.IO) {
-            pdfBookDao.getAll().find { it.uri == pdfUri.toString() }
+        if (type == "web") {
+            val extractedWords = extractTextFromWeb(pdfUri.toString())
+            words = extractedWords.split("\\s+".toRegex()).filter { it.isNotBlank() }
+            currentWordIndex = 0
+        } else {
+            val extractedWords = extractTextFromPdfCached(context, pdfUri)
+            words = extractedWords.split("\\s+".toRegex()).filter { it.isNotBlank() }
+            val savedBook = withContext(Dispatchers.IO) {
+                pdfBookDao.getAll().find { it.uri == pdfUri.toString() }
+            }
+            currentWordIndex = savedBook?.lastWordIndex ?: 0
         }
-        currentWordIndex = savedBook?.lastWordIndex ?: 0
     }
 
     // Flash words
@@ -111,9 +118,12 @@ fun SpeedReaderScreen(
         while (words.isNotEmpty()) {
             if (!isPaused) {
                 currentWordIndex = (currentWordIndex + 1).coerceAtMost(words.size - 1)
-                pdfBookDao.insertOrUpdate(
-                    PdfBook(uri = pdfUri.toString(), name = pdfName, lastWordIndex = currentWordIndex)
-                )
+                // ONLY update DB if it's a PDF
+                if (type == "pdf") {
+                    pdfBookDao.insertOrUpdate(
+                        PdfBook(uri = pdfUri.toString(), name = pdfName, lastWordIndex = currentWordIndex)
+                    )
+                }
 
                 // --- STREAK + WORD COUNT TRACKING ---
                 withContext(Dispatchers.IO) {
@@ -204,7 +214,7 @@ fun SpeedReaderScreen(
                     Button(onClick = {
                         // Pause speed reader before leaving
                         isPaused = true
-                        navController.navigate("full_reader/${Uri.encode(pdfUri.toString())}/$pdfName")
+                        navController.navigate("full_reader/$type/${Uri.encode(pdfUri.toString())}/$pdfName")
                     }, enabled = true, colors = buttonColors) {
                         Text("Read as Book")
                     }
@@ -212,7 +222,7 @@ fun SpeedReaderScreen(
                     Button(onClick = {
                         // Pause speed reader before leaving
                         isPaused = true
-                        navController.navigate("eye_tracker/${Uri.encode(pdfUri.toString())}/$pdfName")
+                        navController.navigate("eye_tracker/$type/${Uri.encode(pdfUri.toString())}/$pdfName")
                     }, enabled = true, colors = buttonColors) {
                         Text("Eye Track")
                     }
@@ -376,5 +386,15 @@ suspend fun extractTextFromPdfCached(context: Context, pdfUri: Uri): String = wi
     } catch (e: Exception) {
         e.printStackTrace()
         ""
+    }
+}
+
+suspend fun extractTextFromWeb(url: String): String = withContext(Dispatchers.IO) {
+    try {
+        val doc = Jsoup.connect(url).get()
+        return@withContext doc.body().text()
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return@withContext "Error: Could not load text from this URL."
     }
 }

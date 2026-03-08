@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
 fun LibraryScreen(
     pdfBookDao: PdfBookDao,
     onPdfSelected: (Uri, String) -> Unit,
+    onUrlSelected: (String) -> Unit,
     userStatsDao: UserStatsDao
 ) {
     val context = LocalContext.current
@@ -63,6 +64,9 @@ fun LibraryScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     var stats by remember { mutableStateOf<UserStats?>(null) }
+
+    var showUrlDialog by remember { mutableStateOf(false) }
+    var urlInput by remember { mutableStateOf("") }
 
     LaunchedEffect(userStatsDao) {
         val today = java.time.LocalDate.now()
@@ -140,8 +144,19 @@ fun LibraryScreen(
     Scaffold(
         topBar = { TopAppBar(title = { Text("My Library") }) },
         floatingActionButton = {
-            FloatingActionButton(onClick = { pdfPicker.launch(arrayOf("application/pdf")) }) {
-                Text("+")
+            Box(modifier = Modifier.fillMaxWidth().padding(start = 32.dp)) {
+                FloatingActionButton(
+                    onClick = { showUrlDialog = true },
+                    modifier = Modifier.align(Alignment.BottomStart)
+                ) {
+                    Text("Add URL")
+                }
+                FloatingActionButton(
+                    onClick = { pdfPicker.launch(arrayOf("application/pdf")) },
+                    modifier = Modifier.align(Alignment.BottomEnd)
+                ) {
+                    Text("+")
+                }
             }
         }
     ) { paddingValues ->
@@ -151,6 +166,34 @@ fun LibraryScreen(
                 .padding(paddingValues)
                 .padding(WindowInsets.statusBars.asPaddingValues())
         ) {
+
+            if (showUrlDialog) {
+                AlertDialog(
+                    onDismissRequest = { showUrlDialog = false },
+                    title = { Text("Read from URL") },
+                    text = {
+                        TextField(
+                            value = urlInput,
+                            onValueChange = { urlInput = it },
+                            label = { Text("https://...") },
+                            singleLine = true
+                        )
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            if (urlInput.isNotBlank()) {
+                                val validUrl = if (!urlInput.startsWith("http")) "https://$urlInput" else urlInput
+                                onUrlSelected(validUrl)
+                            }
+                            showUrlDialog = false
+                            urlInput = ""
+                        }) { Text("Read") }
+                    },
+                    dismissButton = {
+                        Button(onClick = { showUrlDialog = false }) { Text("Cancel") }
+                    }
+                )
+            }
 
             // --- Rename & Delete Dialog ---
             if (showRenameDialog && pdfToRename != null) {
